@@ -50,13 +50,22 @@ const ActionContainer = styled.div`
 `;
 const UPDATE_CARD = gql`
   mutation UpdateCard($cardId: String!, $pos: Int!, $sectionId: String!, $title: String!, $label: String!) {
-    updateCardPos(
-      request: { cardId: $cardId, pos: $pos, sectionId: $sectionId, title: $title, label: $label }
+    updateCardData(
+      cardEntry: { id: $cardId, pos: $pos, sectionId: $sectionId, title: $title, label: $label }
     ) {
       id
       title
       label
-      pos
+    }
+  }
+`;
+
+const REMOVE_CARD = gql`
+  mutation RemoveCard($cardId: String!) {
+    deleteCardItem(
+      cardEntry: { id: $cardId }
+    ) {
+      id
     }
   }
 `;
@@ -66,12 +75,20 @@ const Card = ({ card, sectionId, setReload }) => {
   const [title, setTitle] = useState(card.title);
 
   const [updateCardPos, {data: updatedData }] = useMutation(UPDATE_CARD);
+  const [removeCard, {data: removeRet }] = useMutation(REMOVE_CARD);
 
   useEffect(() => {
     if(updatedData != undefined) {
       setReload(Math.random());
     }
   }, [updatedData]);
+
+  useEffect(() => {
+    if(removeRet != undefined) {
+      setReload(Math.random());
+    }
+  }, [removeRet]);
+
   const updateCard = () => {
     console.log(card, sectionId);
     if(title == '') {
@@ -82,7 +99,7 @@ const Card = ({ card, sectionId, setReload }) => {
     updateCardPos({
       variables: {
         cardId: card.id,
-        pos: card.pos,
+        pos: parseInt(card.pos),
         sectionId: sectionId,
         title: title,
         label: title,
@@ -92,7 +109,11 @@ const Card = ({ card, sectionId, setReload }) => {
   };
 
   const deleteCard = () => {
-
+    removeCard({
+      variables: {
+        cardId: card.id
+      }
+    })
   }
 
   return (

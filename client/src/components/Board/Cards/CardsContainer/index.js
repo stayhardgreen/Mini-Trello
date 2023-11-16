@@ -25,10 +25,11 @@ import {
   CancelCardButton,
   SubmitCardIcon,
 } from "./index-styles";
+import { FaTrash } from "react-icons/fa";
 
 const ADD_CARD = gql`
   mutation InsertCard(
-    $sectionId: ID!
+    $sectionId: String!
     $title: String!
     $label: String!
     $pos: Int!
@@ -62,13 +63,12 @@ const onCardAdded = gql`
 
 const UPDATE_CARD = gql`
   mutation UpdateCard($cardId: String!, $pos: Int!, $sectionId: String!, $title: String!, $label: String!) {
-    updateCardPos(
-      request: { cardId: $cardId, pos: $pos, sectionId: $sectionId, title: $title, label: $label }
+    updateCardData(
+      cardEntry: { id: $cardId, pos: $pos, sectionId: $sectionId, title: $title, label: $label }
     ) {
       id
       title
       label
-      pos
     }
   }
 `;
@@ -86,6 +86,16 @@ const ON_CARD_UPDATE_SUBSCRIPTION = gql`
   }
 `;
 
+const REMOVE_SECTION = gql`
+  mutation RemoveSection($sectionId: String!) {
+    deleteSectionItem(
+      sectionEntry: { id: $sectionId }
+    ) {
+      id
+    }
+  }
+`;
+
 const CardContainer = ({ item, boards, setReload }) => {
   const [cards, setCards] = useState([]);
   const [isTempCardActive, setTempCardActive] = useState(false);
@@ -93,19 +103,27 @@ const CardContainer = ({ item, boards, setReload }) => {
 
   const [insertCard, { data: addCard }] = useMutation(ADD_CARD);
 
-  const [updateCardPos, {data: updatedData }] = useMutation(UPDATE_CARD);
+  const [updateCardPos, { data: updatedData }] = useMutation(UPDATE_CARD);
+  const [removeSection, { data: removeRet }] = useMutation(REMOVE_SECTION);
 
   useEffect(() => {
-    if(addCard != undefined) {
+    if (addCard != undefined) {
       setReload(Math.random());
     }
-  },[addCard]);
-  
+  }, [addCard]);
+
   useEffect(() => {
-    if(updatedData != undefined) {
+    if (updatedData != undefined) {
       setReload(Math.random());
     }
-  },[updatedData]);
+  }, [updatedData]);
+
+  useEffect(() => {
+    if (removeRet != undefined) {
+      setReload(Math.random());
+    }
+  }, [removeRet]);
+
   const { data: { cardAdded } = {} } = useSubscription(onCardAdded);
 
   const { data: { onCardPosChange } = {} } = useSubscription(
@@ -173,16 +191,16 @@ const CardContainer = ({ item, boards, setReload }) => {
       console.log(addedIndex);
       if (addedIndex === 0) {
         const card0 = newColumn.cards[0];
-        if(card0 == undefined) {
-          updatedPOS = payload.pos;
-        }else{
-          updatedPOS = newColumn.cards[0].pos / 2;
+        if (card0 == undefined) {
+          updatedPOS = parseInt(payload.pos);
+        } else {
+          updatedPOS = parseInt(newColumn.cards[0].pos) / 2;
         }
       } else if (addedIndex === newColumn.cards.length) {
-        updatedPOS = newColumn.cards[newColumn.cards.length - 1].pos + 16384;
+        updatedPOS = parseInt(newColumn.cards[newColumn.cards.length - 1].pos) + 16384;
       } else {
-        let afterCardPOS = newColumn.cards[addedIndex].pos;
-        let beforeCardPOS = newColumn.cards[addedIndex - 1].pos;
+        let afterCardPOS = parseInt(newColumn.cards[addedIndex].pos);
+        let beforeCardPOS = parseInt(newColumn.cards[addedIndex - 1].pos);
 
         updatedPOS = (afterCardPOS + beforeCardPOS) / 2;
       }
@@ -229,7 +247,7 @@ const CardContainer = ({ item, boards, setReload }) => {
           label: cardText,
           pos:
             cards && cards.length > 0
-              ? cards[cards.length - 1].pos + 16348
+              ? parseInt(cards[cards.length - 1].pos) + 16348
               : 16348,
         },
       });
@@ -238,11 +256,23 @@ const CardContainer = ({ item, boards, setReload }) => {
     }
   };
 
+  const deleteSection = () => {
+    removeSection({
+      variables: {
+        sectionId: item.id
+      }
+    })
+  }
+
   return (
     <Draggable key={item.id}>
       <Wrapper className={"card-container"}>
         <WrappedSection>
+          <div style={{ width: '100%', justifyContent: 'end', display: 'flex', cursor: 'pointer'}}>
+            <FaTrash style={{ color: 'red' }} onClick={deleteSection} />
+          </div>
           <CardContainerHeader className={"column-drag-handle"}>
+
             <ContainerContainerTitle>{item.title}</ContainerContainerTitle>
           </CardContainerHeader>
           <CardsContainer>
@@ -275,7 +305,7 @@ const CardContainer = ({ item, boards, setReload }) => {
               dropPlaceholderAnimationDuration={200}
             >
               {cards.map((card) => (
-                <Card key={card.id} card={card} sectionId={item.id} setReload={setReload}/>
+                <Card key={card.id} card={card} sectionId={item.id} setReload={setReload} />
               ))}
             </Container>
             {isTempCardActive ? (
@@ -290,7 +320,7 @@ const CardContainer = ({ item, boards, setReload }) => {
                     />
                   </ListCardDetails>
                 </ListCardComponent>
-                <div style={{ display: 'flex'}}>
+                <div style={{ display: 'flex' }}>
                   <SubmitCardButtonDiv>
                     <SubmitCardButton
                       type="button"
@@ -303,7 +333,7 @@ const CardContainer = ({ item, boards, setReload }) => {
                     <CancelCardButton
                       type="button"
                       value="Cancel"
-                      onClick={()=> setTempCardActive(false)}
+                      onClick={() => setTempCardActive(false)}
                     />
                   </SubmitCardButtonDiv>
 

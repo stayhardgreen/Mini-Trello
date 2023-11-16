@@ -24,19 +24,8 @@ import {
 
 const BOARD_QUERY = gql`
   query {
-    fetchSections {
-      id
-      title
-      label
-      pos
-      description
-      cards {
-        id
-        title
-        label
-        description
-        pos
-      }
+    allSectionData {
+      sectionInfo
     }
   }
 `;
@@ -71,10 +60,9 @@ const ADD_SECTION = gql`
 `;
 
 const UPDATE_SECTION_POS = gql`
-  mutation UpdateSection($sectionId: String!, $pos: Int!) {
-    updateSectionPos(request: { sectionId: $sectionId, pos: $pos }) {
+  mutation UpdateSection($sectionId: String!, $pos: Int!, $title: String!, $label: String!) {
+    updateSectionData(sectionEntry: { id: $sectionId, pos: $pos, title: $title, label: $label }) {
       id
-      pos
     }
   }
 `;
@@ -97,7 +85,7 @@ const Board = () => {
   const [addSectionInpuText, setAddSectionInputText] = useState("");
   const [boards, setBoards] = useState([]);
 
-  const [AddSection, { data: {insertSection} ={}  } ] = useMutation(ADD_SECTION);
+  const [AddSection, { data: {sectionData} ={}  } ] = useMutation(ADD_SECTION);
 
   // const [getBoardData, { error, data, refetch }] = useQuery(BOARD_QUERY);
   const { loading, error, data, refetch } = useQuery(BOARD_QUERY);
@@ -110,15 +98,46 @@ const Board = () => {
 
   useEffect(() => {
     if (data) {
-      setBoards(data.fetchSections);
+      const _data = JSON.parse(data.allSectionData.sectionInfo);
+      let tmp = [];
+      _data.forEach(element => {
+        let cardsTmp = [];
+        let _tmpCard = element.cards;
+        _tmpCard.forEach(element2 => {
+          const _id = element2.id.S;
+          const _title = element2.title.S;
+          const _label = element2.label.S;
+          const _sectionId = element2.sectionId.S;
+          const _pos = element2.pos.N;
+          element2.id = _id;
+          element2.title = _title;
+          element2.label = _label;
+          element2.pos = _pos;
+          element2.sectionId = _sectionId;
+          cardsTmp.push(element2);
+        });
+
+        const _id = element.id.S;
+        const _pos = element.pos.N;
+        const _title = element.title.S;
+        const _label = element.label.S;
+        element.id = _id;
+        element.pos = _pos;
+        element.title = _title;
+        element.label = _label;
+        element.cards = cardsTmp;
+        tmp.push(element);
+      });
+      console.log(tmp);
+      setBoards(tmp);
     }
   }, [data]);
 
   useEffect(() => {
-    if(insertSection != undefined) {
+    if(sectionData != undefined) {
       refetch();
     }
-  }, [ insertSection ]);
+  }, [ sectionData ]);
 
   useEffect(() => {
     if(dataUSP != undefined) {
@@ -167,11 +186,12 @@ const Board = () => {
   }, [sectionAdded]);
 
   const onColumnDrop = ({ removedIndex, addedIndex, payload }) => {
-    if (data) {
+    if (boards) {
+      console.log(boards);
       let updatePOS = PosCalculation(
         removedIndex,
         addedIndex,
-        data.fetchSections
+        boards
       );
       let newBoards = boards.map((board) => {
         if (board.id === payload.id) {
@@ -191,6 +211,8 @@ const Board = () => {
         variables: {
           sectionId: payload.id,
           pos: parseInt(updatePOS),
+          title: payload.title,
+          label: payload.label,
         },
       });
       // setBoards([...sortedBoards]);
@@ -205,7 +227,7 @@ const Board = () => {
           label: addSectionInpuText,
           pos:
             boards && boards.length > 0
-              ? boards[boards.length - 1].pos + 16384
+              ? parseInt(boards[boards.length - 1].pos) + 16384
               : 16384,
         },
       });

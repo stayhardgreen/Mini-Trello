@@ -1,5 +1,4 @@
-from graphene import ObjectType, InputObjectType, String, Int, Schema, Field, DateTime, Mutation, JSONString, List
-from botocore.exceptions import ClientError
+from graphene import ObjectType, InputObjectType, String, Int, Schema, Field, Mutation, JSONString, List
 import boto3
 import uuid
 
