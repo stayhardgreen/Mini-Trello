@@ -91,12 +91,13 @@ class CardParamsInput(InputObjectType):
     pos = Int(required=True)
     sectionId = String(required=True)
 
+
 class UpdateCardParamsInput(InputObjectType):
     id = String()
     title = String()
     label = String()
     pos = Int()
-    sectionId = String()    
+    sectionId = String()
 
 
 class SectionParamsInput(InputObjectType):
@@ -135,7 +136,6 @@ class Section(ObjectType):
     sectionInfo = JSONString()
 
     def resolve_cards(parent, info):
-        print(parent)
         # Query the cards associated with the section using the section's ID
         section_id = parent['id']
         cards = getAllItemsFromCards(CARDS_TABLE)
@@ -156,31 +156,6 @@ class CreateCardEntry(Mutation):
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key
         ).resource('dynamodb', region_name=region_name)
-        try:
-            table = dynamodb.create_table(
-                TableName=CARDS_TABLE,
-                KeySchema=[
-                    {
-                        'AttributeName': 'id',
-                        'KeyType': 'HASH'
-                    }
-                ],
-                AttributeDefinitions=[
-                    {
-                        'AttributeName': 'id',
-                        'AttributeType': 'S'
-                    }
-                ],
-                ProvisionedThroughput={
-                    'ReadCapacityUnits': 5,
-                    'WriteCapacityUnits': 5
-                }
-            )
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'ResourceInUseException':
-                table = dynamodb.Table(CARDS_TABLE)
-            else:
-                raise e
         table = dynamodb.Table(CARDS_TABLE)
         cardEntry['id'] = str(uuid.uuid4())
         table.put_item(Item=cardEntry)
@@ -205,31 +180,6 @@ class CreateSectionEntry(Mutation):
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key
         ).resource('dynamodb', region_name=region_name)
-        try:
-            table = dynamodb.create_table(
-                TableName=SECTIONS_TABLE,
-                KeySchema=[
-                    {
-                        'AttributeName': 'id',
-                        'KeyType': 'HASH'
-                    }
-                ],
-                AttributeDefinitions=[
-                    {
-                        'AttributeName': 'id',
-                        'AttributeType': 'S'
-                    }
-                ],
-                ProvisionedThroughput={
-                    'ReadCapacityUnits': 5,
-                    'WriteCapacityUnits': 5
-                }
-            )
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'ResourceInUseException':
-                table = dynamodb.Table(SECTIONS_TABLE)
-            else:
-                raise e
         table = dynamodb.Table(SECTIONS_TABLE)
         sectionEntry['id'] = str(uuid.uuid4())
         table.put_item(Item=sectionEntry)
@@ -275,6 +225,8 @@ class UpdateCardEntry(Mutation):
     class Arguments:
         cardEntry = UpdateCardParamsInput(required=True)
 
+    Output = Card
+
     def mutate(self, info, cardEntry):
         dynamodb = boto3.Session(
             aws_access_key_id=access_key_id,
@@ -300,10 +252,59 @@ class UpdateCardEntry(Mutation):
             raise Exception('Failed to update cards')
 
 
+class DeleteSectionMutation(Mutation):
+    class Arguments:
+        sectionEntry = UpdateSectionParamsInput(required=True)
+
+    Output = Section
+
+    def mutate(self, info, sectionEntry):
+        # Code to delete a section from DynamoDB
+        dynamodb = boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key
+        ).resource('dynamodb', region_name=region_name)
+        table = dynamodb.Table(SECTIONS_TABLE)
+        cards_table = dynamodb.Table(CARDS_TABLE)
+        matched_cards = Section.resolve_cards({'id': {'S': sectionEntry.id}}, info)
+        for item in matched_cards:
+            cards_table.delete_item(Key={'id': item['id']['S']})
+        response = table.delete_item(
+            Key={'id': sectionEntry.id},
+            ReturnValues='ALL_OLD'
+        )
+        deleted_section = response.get('Attributes', None)
+        return deleted_section
+
+
+class DeleteCardMutation(Mutation):
+    class Arguments:
+        cardEntry = UpdateSectionParamsInput(required=True)
+
+    Output = Card
+
+    def mutate(self, info, cardEntry):
+        # Code to delete a section from DynamoDB
+        dynamodb = boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key
+        ).resource('dynamodb', region_name=region_name)
+        table = dynamodb.Table(CARDS_TABLE)
+        response = table.delete_item(
+            Key={'id': cardEntry.id},
+            ReturnValues='ALL_OLD'
+        )
+        deleted_card = response.get('Attributes', None)
+        return deleted_card
+
+
 class Mutation(ObjectType):
     cardData = CreateCardEntry.Field()
     sectionData = CreateSectionEntry.Field()
     updateSectionData = UpdateSectionEntry.Field()
+    updateCardData = UpdateCardEntry.Field()
+    deleteSectionItem = DeleteSectionMutation.Field()
+    deleteCardItem = DeleteCardMutation.Field()
 
 
 class Query(ObjectType):
@@ -329,6 +330,7 @@ class Query(ObjectType):
         # Query the dynamodb here and get all the records for display
         data = {}
         data['sectionInfo'] = getAllItemsFromSections(SECTIONS_TABLE)
+        print(getAllItemsFromSections(SECTIONS_TABLE))
         for section in data['sectionInfo']:
             section['cards'] = Section.resolve_cards(section, info)
         return data

@@ -1,6 +1,7 @@
 from flask import Flask
 from flask_graphql import GraphQLView
 from schema import schema
+import migrate
 
 app = Flask(__name__)
 
@@ -10,4 +11,6 @@ app.add_url_rule(
 )
 
 if __name__ == '__main__':
+    migrate.createCardTable()
+    migrate.createSectionTable()
     app.run()
