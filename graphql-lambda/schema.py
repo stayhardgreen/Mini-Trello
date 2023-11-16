@@ -1,35 +1,20 @@
-# Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: MIT-0
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify,
-# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
-# permit persons to whom the Software is furnished to do so.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
-
-from graphene import ObjectType, InputObjectType, String, Int, Schema, Field, DateTime, Mutation, JSONString
+from graphene import ObjectType, InputObjectType, String, Int, Schema, Field, DateTime, Mutation, JSONString, List
+from botocore.exceptions import ClientError
 import boto3
+import uuid
 
-DYNAMO_DB_TABLE_NAME = 'demoempdb'
 CARDS_TABLE = 'cards'
+SECTIONS_TABLE = 'sections'
 access_key_id = 'AKIAYBNJI4EPU7RHB3U3'
 secret_access_key = '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'
 region_name = "eu-north-1"
 
 
-def getItemFromDynamoDb(tableName, empId, param=None):
+def getItemFromCards(tableName, id, param=None):
     # Code to get the item into dynamo db
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(tableName)
-    response = table.get_item(Key={'empId': empId})
+    response = table.get_item(Key={'id': id})
     print(response['Item'])
     result = response['Item']
     if param:
@@ -38,7 +23,20 @@ def getItemFromDynamoDb(tableName, empId, param=None):
     return result
 
 
-def getAllItemsFromDynamoDbTable(tableName):
+def getItemFromSections(tableName, id, param=None):
+    # Code to get the item into dynamo db
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(tableName)
+    response = table.get_item(Key={'id': id})
+    print(response['Item'])
+    result = response['Item']
+    if param:
+        result = response['Item'][param]
+    print(result)
+    return result
+
+
+def getAllItemsFromCards(tableName):
     results = []
     lastEvaluatedKey = None
 
@@ -62,62 +60,282 @@ def getAllItemsFromDynamoDbTable(tableName):
     return results
 
 
-class DemoEmployeeParamsInput(InputObjectType):
-    empId = Int(required=True)
-    empName = String(required=True)
-    empTitle = String(required=True)
-    empStartDate = String(required=True)
+def getAllItemsFromSections(tableName):
+    results = []
+    lastEvaluatedKey = None
+
+    client = boto3.Session(
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key
+    ).client('dynamodb', region_name=region_name)
+
+    while True:
+        if lastEvaluatedKey:
+            response = client.scan(
+                TableName=tableName,
+                ExclusiveStartKey=lastEvaluatedKey
+            )
+        else:
+            response = client.scan(TableName=tableName)
+        lastEvaluatedKey = response.get('LastEvaluatedKey')
+        results.extend(response['Items'])
+        if not lastEvaluatedKey:
+            break
+    return results
 
 
-class DemoEmployeeParams(ObjectType):
+class CardParamsInput(InputObjectType):
+    id = String()
+    title = String(required=True)
+    label = String(required=True)
+    pos = Int(required=True)
+    sectionId = String(required=True)
+
+class UpdateCardParamsInput(InputObjectType):
+    id = String()
+    title = String()
+    label = String()
+    pos = Int()
+    sectionId = String()    
+
+
+class SectionParamsInput(InputObjectType):
+    id = String()
+    title = String(required=True)
+    label = String(required=True)
+    pos = Int(required=True)
+
+
+class UpdateSectionParamsInput(InputObjectType):
+    id = String()
+    title = String()
+    label = String()
+    pos = Int()
+
+
+class Card(ObjectType):
     class Meta:
-        description = 'Employee Parameters'
-    empId = Int()
-    empName = String()
-    empTitle = String()
-    empStartDate = String()
-    empInfo = JSONString()
+        description = 'Card Parameters'
+    id = String()
+    title = String()
+    label = String()
+    pos = Int()
+    sectionId = String()
+    cardInfo = JSONString()
 
 
-class CreateEntry(Mutation):
+class Section(ObjectType):
+    class Meta:
+        description = 'Section Parameters'
+    id = String()
+    title = String()
+    label = String()
+    pos = Int()
+    cards = List(lambda: Card)
+    sectionInfo = JSONString()
+
+    def resolve_cards(parent, info):
+        print(parent)
+        # Query the cards associated with the section using the section's ID
+        section_id = parent['id']
+        cards = getAllItemsFromCards(CARDS_TABLE)
+        section_cards = [
+            card for card in cards if card['sectionId'] == section_id]
+        return section_cards
+
+
+class CreateCardEntry(Mutation):
     class Arguments:
-        empEntry = DemoEmployeeParamsInput(required=True)
+        cardEntry = CardParamsInput(required=True)
 
-    Output = DemoEmployeeParams
+    Output = Card
 
-    def mutate(self, info, empEntry):
+    def mutate(self, info, cardEntry):
         # Code to add the item into dynamo db
         dynamodb = boto3.Session(
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key
         ).resource('dynamodb', region_name=region_name)
-        table = dynamodb.Table(DYNAMO_DB_TABLE_NAME)
-        table.put_item(Item=empEntry)
-        return DemoEmployeeParams(
-            empId=empEntry.empId,
-            empName=empEntry.empName,
-            empTitle=empEntry.empTitle,
-            empStartDate=empEntry.empStartDate
+        try:
+            table = dynamodb.create_table(
+                TableName=CARDS_TABLE,
+                KeySchema=[
+                    {
+                        'AttributeName': 'id',
+                        'KeyType': 'HASH'
+                    }
+                ],
+                AttributeDefinitions=[
+                    {
+                        'AttributeName': 'id',
+                        'AttributeType': 'S'
+                    }
+                ],
+                ProvisionedThroughput={
+                    'ReadCapacityUnits': 5,
+                    'WriteCapacityUnits': 5
+                }
+            )
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceInUseException':
+                table = dynamodb.Table(CARDS_TABLE)
+            else:
+                raise e
+        table = dynamodb.Table(CARDS_TABLE)
+        cardEntry['id'] = str(uuid.uuid4())
+        table.put_item(Item=cardEntry)
+        return Card(
+            id=cardEntry.id,
+            title=cardEntry.title,
+            label=cardEntry.label,
+            pos=cardEntry.pos,
+            sectionId=cardEntry.sectionId
         )
 
 
+class CreateSectionEntry(Mutation):
+    class Arguments:
+        sectionEntry = SectionParamsInput(required=True)
+
+    Output = Section
+
+    def mutate(self, info, sectionEntry):
+        # Code to add the item into dynamo db
+        dynamodb = boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key
+        ).resource('dynamodb', region_name=region_name)
+        try:
+            table = dynamodb.create_table(
+                TableName=SECTIONS_TABLE,
+                KeySchema=[
+                    {
+                        'AttributeName': 'id',
+                        'KeyType': 'HASH'
+                    }
+                ],
+                AttributeDefinitions=[
+                    {
+                        'AttributeName': 'id',
+                        'AttributeType': 'S'
+                    }
+                ],
+                ProvisionedThroughput={
+                    'ReadCapacityUnits': 5,
+                    'WriteCapacityUnits': 5
+                }
+            )
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceInUseException':
+                table = dynamodb.Table(SECTIONS_TABLE)
+            else:
+                raise e
+        table = dynamodb.Table(SECTIONS_TABLE)
+        sectionEntry['id'] = str(uuid.uuid4())
+        table.put_item(Item=sectionEntry)
+        return Section(
+            id=sectionEntry.id,
+            title=sectionEntry.title,
+            label=sectionEntry.label,
+            pos=sectionEntry.pos,
+        )
+
+
+class UpdateSectionEntry(Mutation):
+    class Arguments:
+        sectionEntry = UpdateSectionParamsInput(required=True)
+
+    Output = Section
+
+    def mutate(self, info, sectionEntry):
+        dynamodb = boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key
+        ).client('dynamodb', region_name=region_name)
+        response = dynamodb.update_item(
+            TableName=SECTIONS_TABLE,
+            Key={'id': {'S': sectionEntry.id}},
+            UpdateExpression='SET title = :title, label = :label, pos = :pos',
+            ExpressionAttributeValues={
+                ':title': {'S': sectionEntry.title},
+                ':label': {'S': sectionEntry.label},
+                ':pos': {'N': str(sectionEntry.pos)}
+            },
+            ReturnValues='ALL_NEW'
+        )
+
+        if 'Attributes' in response:
+            result = response['Attributes']
+            return result
+        else:
+            raise Exception('Failed to update sections')
+
+
+class UpdateCardEntry(Mutation):
+    class Arguments:
+        cardEntry = UpdateCardParamsInput(required=True)
+
+    def mutate(self, info, cardEntry):
+        dynamodb = boto3.Session(
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key
+        ).client('dynamodb', region_name=region_name)
+        response = dynamodb.update_item(
+            TableName=CARDS_TABLE,
+            Key={'id': {'S': cardEntry.id}},
+            UpdateExpression='SET title = :title, label = :label, pos = :pos, sectionId = :sectionId',
+            ExpressionAttributeValues={
+                ':title': {'S': cardEntry.title},
+                ':label': {'S': cardEntry.label},
+                ':pos': {'N': str(cardEntry.pos)},
+                ':sectionId': {'S': cardEntry.sectionId}
+            },
+            ReturnValues='ALL_NEW'
+        )
+
+        if 'Attributes' in response:
+            result = response['Attributes']
+            return result
+        else:
+            raise Exception('Failed to update cards')
+
+
 class Mutation(ObjectType):
-    empData = CreateEntry.Field()
+    cardData = CreateCardEntry.Field()
+    sectionData = CreateSectionEntry.Field()
+    updateSectionData = UpdateSectionEntry.Field()
 
 
 class Query(ObjectType):
-    empDetails = Field(DemoEmployeeParams, empId=Int(required=True))
-    allEmpData = Field(DemoEmployeeParams)
 
-    def resolve_allEmpData(root, info):
+    cardDetails = Field(Card, cardId=Int(required=True))
+    allCardData = Field(Card)
+
+    sectionDetails = Field(Section, sectionId=Int(required=True))
+    allSectionData = Field(Section)
+
+    def resolve_allCardData(root, info):
         # Query the dynamodb here and get all the records for display
         data = {}
-        data['empInfo'] = getAllItemsFromDynamoDbTable(DYNAMO_DB_TABLE_NAME)
+        data['cardInfo'] = getAllItemsFromCards(CARDS_TABLE)
         return data
 
-    def resolve_empDetails(root, info, empId):
+    def resolve_cardDetails(root, info, cardId):
         data = {}
-        data = getItemFromDynamoDb(DYNAMO_DB_TABLE_NAME, empId)
+        data = getItemFromCards(CARDS_TABLE, cardId)
+        return data
+
+    def resolve_allSectionData(root, info):
+        # Query the dynamodb here and get all the records for display
+        data = {}
+        data['sectionInfo'] = getAllItemsFromSections(SECTIONS_TABLE)
+        for section in data['sectionInfo']:
+            section['cards'] = Section.resolve_cards(section, info)
+        return data
+
+    def resolve_sectionDetails(root, info, sectionId):
+        data = {}
+        data = getItemFromSections(SECTIONS_TABLE, sectionId)
         return data
 
 
